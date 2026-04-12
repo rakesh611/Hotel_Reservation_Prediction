@@ -1,86 +1,109 @@
-pipeline{
+pipeline {
     agent any
 
     environment {
-        VENV_DIR = 'venv'
-        GCP_PROJECT = "mlops-new-447207"
-        GCLOUD_PATH = "/var/jenkins_home/google-cloud-sdk/bin"
+        IMAGE_NAME = "rakesh6nm/flask-app"
+        TAG = "${BUILD_NUMBER}"
+        GIT_REPO = "https://github.com/rakesh611/Hotel_Reservation_Prediction.git"
+        GITOPS_REPO = "https://github.com/rakesh611/flask-k8s-manifests.git"
+        GITOPS_DIR = "flask-k8s-manifests"
     }
 
-    stages{
-        stage('Cloning Github repo to Jenkins'){
-            steps{
-                script{
-                    echo 'Cloning Github repo to Jenkins............'
-                    checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[credentialsId: 'github-token', url: 'https://github.com/data-guru0/MLOPS-COURSE-PROJECT-1.git']])
-                }
+    options {
+        skipDefaultCheckout()
+    }
+
+    stages {
+
+        stage('🧹 Clean Workspace') {
+            steps {
+                deleteDir()
             }
         }
 
-        stage('Setting up our Virtual Environment and Installing dependancies'){
-            steps{
-                script{
-                    echo 'Setting up our Virtual Environment and Installing dependancies............'
+        stage('📥 Clone Application Repo') {
+            steps {
+                git branch: 'main', url: "${https://github.com/rakesh611/Hotel_Reservation_Prediction.git}"
+            }
+        }
+
+        stage('🐳 Build Docker Image') {
+            steps {
+                echo "Building Docker image: $IMAGE_NAME:$TAG"
+                sh "docker build -t $IMAGE_NAME:$TAG ."
+            }
+        }
+
+        stage('🔐 Security Scan (Trivy)') {
+            steps {
+                echo "Running Trivy scan..."
+                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL $IMAGE_NAME:$TAG"
+            }
+        }
+
+        stage('🔑 Docker Login') {
+            steps {
+                withCredentials([string(credentialsId: 'dockerhub-token', variable: 'DOCKER_TOKEN')]) {
                     sh '''
-                    python -m venv ${VENV_DIR}
-                    . ${VENV_DIR}/bin/activate
-                    pip install --upgrade pip
-                    pip install -e .
+                    echo $DOCKER_TOKEN | docker login -u rakesh6nm --password-stdin
                     '''
                 }
             }
         }
 
-        stage('Building and Pushing Docker Image to GCR'){
-            steps{
-                withCredentials([file(credentialsId: 'gcp-key' , variable : 'GOOGLE_APPLICATION_CREDENTIALS')]){
-                    script{
-                        echo 'Building and Pushing Docker Image to GCR.............'
-                        sh '''
-                        export PATH=$PATH:${GCLOUD_PATH}
+        stage('📤 Push Docker Image') {
+            steps {
+                sh """
+                docker push $IMAGE_NAME:$TAG
+                docker tag $IMAGE_NAME:$TAG $IMAGE_NAME:latest
+                docker push $IMAGE_NAME:latest
+                """
+            }
+        }
 
+        stage('📥 Clone GitOps Repo (K8s Manifests)') {
+            steps {
+                git branch: 'main', url: "${GITOPS_REPO}"
+            }
+        }
 
-                        gcloud auth activate-service-account --key-file=${GOOGLE_APPLICATION_CREDENTIALS}
+        stage('✏️ Update Kubernetes Manifest') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
+                    sh """
+                    cd $GITOPS_DIR
 
-                        gcloud config set project ${GCP_PROJECT}
+                    echo "Updating image tag in deployment.yaml"
 
-                        gcloud auth configure-docker --quiet
+                    sed -i "s|image:.*|image: $IMAGE_NAME:$TAG|g" deployment.yaml
 
-                        docker build -t gcr.io/${GCP_PROJECT}/ml-project:latest .
+                    git config user.email "jharakesh485@gmail.com"
+                    git config user.name "Rakesh"
 
-                        docker push gcr.io/${GCP_PROJECT}/ml-project:latest 
+                    git add deployment.yaml
+                    git commit -m "Update image to version $TAG" || echo "No changes"
 
-                        '''
-                    }
+                    git push https://$GIT_USER:$GIT_PASS@github.com/rakesh611/flask-k8s-manifests.git
+                    """
                 }
             }
         }
 
-
-        stage('Deploy to Google Cloud Run'){
-            steps{
-                withCredentials([file(credentialsId: 'gcp-key' , variable : 'GOOGLE_APPLICATION_CREDENTIALS')]){
-                    script{
-                        echo 'Deploy to Google Cloud Run.............'
-                        sh '''
-                        export PATH=$PATH:${GCLOUD_PATH}
-
-
-                        gcloud auth activate-service-account --key-file=${GOOGLE_APPLICATION_CREDENTIALS}
-
-                        gcloud config set project ${GCP_PROJECT}
-
-                        gcloud run deploy ml-project \
-                            --image=gcr.io/${GCP_PROJECT}/ml-project:latest \
-                            --platform=managed \
-                            --region=us-central1 \
-                            --allow-unauthenticated
-                            
-                        '''
-                    }
-                }
+        stage('🚀 Trigger ArgoCD Sync (Optional)') {
+            steps {
+                echo "ArgoCD will auto-sync if enabled"
+                // Optional manual sync:
+                // sh "argocd app sync flask-app"
             }
         }
-        
+    }
+
+    post {
+        success {
+            echo "✅ CI/CD Pipeline Completed Successfully!"
+        }
+        failure {
+            echo "❌ Pipeline Failed! Check logs."
+        }
     }
 }
