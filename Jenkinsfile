@@ -31,15 +31,15 @@ pipeline {
 
         stage('🐳 Build Docker Image') {
             steps {
-                echo "Building Docker image: $IMAGE_NAME:$TAG"
-                sh "docker build -t $IMAGE_NAME:$TAG ."
+                echo "Building Docker image: ${IMAGE_NAME}:${TAG}"
+                sh "docker build -t ${IMAGE_NAME}:${TAG} ."
             }
         }
 
         stage('🔐 Security Scan (Trivy)') {
             steps {
                 echo "Running Trivy scan..."
-                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL $IMAGE_NAME:$TAG"
+                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${IMAGE_NAME}:${TAG}"
             }
         }
 
@@ -56,9 +56,9 @@ pipeline {
         stage('📤 Push Docker Image') {
             steps {
                 sh """
-                    docker push $IMAGE_NAME:$TAG
-                    docker tag $IMAGE_NAME:$TAG $IMAGE_NAME:latest
-                    docker push $IMAGE_NAME:latest
+                    docker push ${IMAGE_NAME}:${TAG}
+                    docker tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
+                    docker push ${IMAGE_NAME}:latest
                 """
             }
         }
@@ -66,33 +66,35 @@ pipeline {
         stage('📥 Clone GitOps Repo') {
             steps {
                 dir("${GITOPS_DIR}") {
-                    git branch: 'main', url: "${GITOPS_REPO}"
+                    git branch: 'main',
+                        url: "${GITOPS_REPO}",
+                        credentialsId: 'github-creds'   // ✅ FIXED AUTH
                 }
             }
         }
 
         stage('✏️ Update Kubernetes Manifest') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'github-creds',
-                    usernameVariable: 'GIT_USER',
-                    passwordVariable: 'GIT_PASS'
-                )]) {
-                    sh """
-                        cd ${GITOPS_DIR}
+                dir("${GITOPS_DIR}") {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'github-creds',
+                        usernameVariable: 'GIT_USER',
+                        passwordVariable: 'GIT_PASS'
+                    )]) {
+                        sh """
+                            echo "Updating deployment.yaml with new image"
 
-                        echo "Updating image tag in deployment.yaml"
+                            sed -i "s|image:.*|image: ${IMAGE_NAME}:${TAG}|g" deployment.yaml
 
-                        sed -i "s|image:.*|image: ${IMAGE_NAME}:${TAG}|g" deployment.yaml
+                            git config user.email "jharakesh485@gmail.com"
+                            git config user.name "Rakesh"
 
-                        git config user.email "jharakesh485@gmail.com"
-                        git config user.name "Rakesh"
+                            git add deployment.yaml
+                            git commit -m "Update image to version ${TAG}" || echo "No changes"
 
-                        git add deployment.yaml
-                        git commit -m "Update image to version ${TAG}" || echo "No changes"
-
-                        git push https://${GIT_USER}:${GIT_PASS}@github.com/rakesh611/flask-k8s-manifests.git
-                    """
+                            git push https://${GIT_USER}:${GIT_PASS}@github.com/rakesh611/flask-k8s-manifests.git
+                        """
+                    }
                 }
             }
         }
