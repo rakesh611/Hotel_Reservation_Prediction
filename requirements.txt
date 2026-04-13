@@ -1,8 +1,11 @@
 pandas 
 numpy
-scikit-learn
 pyyaml
 imbalanced-learn
 lightgbm
 mlflow
 flask
+scikit-learn==1.6.1
+joblib
+mlflow
+gunicorn
