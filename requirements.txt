@@ -1,4 +1,4 @@
-pandas 
+pandas
 numpy
 pyyaml
 imbalanced-learn
@@ -7,5 +7,4 @@ mlflow
 flask
 scikit-learn==1.6.1
 joblib
-mlflow
 gunicorn
