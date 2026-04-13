@@ -17,11 +17,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # =========================
-# System dependencies
+# System dependencies (LightGBM + ML libs)
 # =========================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgomp1 \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,11 +40,21 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 # =========================
-# Expose Flask port
+# (IMPORTANT) Ensure model + features exist
+# =========================
+RUN test -f model.pkl || echo "WARNING: model.pkl missing"
+RUN test -f features.pkl || echo "WARNING: features.pkl missing"
+
+# =========================
+# Expose Flask/Gunicorn port
 # =========================
 EXPOSE 8080
 
 # =========================
-# Production server (IMPORTANT)
+# Production server (BEST PRACTICE)
 # =========================
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8080", "application:app"]
+CMD ["gunicorn", \
+     "--bind", "0.0.0.0:8080", \
+     "--workers", "3", \
+     "--timeout", "120", \
+     "application:app"]
