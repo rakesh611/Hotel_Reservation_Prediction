@@ -1,32 +1,49 @@
-# Use specific Python version (recommended)
-FROM python:slim
+# =========================
+# Base Image (stable Python)
+# =========================
+FROM python:3.10-slim
 
+# =========================
 # Environment variables
+# =========================
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=2 \
+    MKL_NUM_THREADS=2
 
-# Set working directory
+# =========================
+# Work directory
+# =========================
 WORKDIR /app
 
-# Install system dependencies (LightGBM needs libgomp)
+# =========================
+# System dependencies
+# =========================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgomp1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements first (for caching)
+# =========================
+# Install dependencies (cached layer)
+# =========================
 COPY requirements.txt .
 
-# Upgrade pip & install dependencies
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy project code
+# =========================
+# Copy application code
+# =========================
 COPY . .
 
+# =========================
 # Expose Flask port
-EXPOSE 5000
+# =========================
+EXPOSE 8080
 
-# Run Flask app
-CMD ["python", "application.py"]
+# =========================
+# Production server (IMPORTANT)
+# =========================
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8080", "application:app"]
