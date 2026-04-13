@@ -6,14 +6,10 @@ pipeline {
         TAG = "${BUILD_NUMBER}"
 
         GIT_REPO = "https://github.com/rakesh611/Hotel_Reservation_Prediction.git"
-
-        GITOPS_REPO = "https://github.com/rakesh611/Hotel_Reservation_Prediction.git"
-        GITOPS_DIR = "flask-k8s-manifests"
     }
 
     options {
         skipDefaultCheckout()
-        timestamps()   // ✅ Better logging
     }
 
     stages {
@@ -26,25 +22,23 @@ pipeline {
 
         stage('📥 Clone Application Repo') {
             steps {
-                git branch: 'main', url: "${GIT_REPO}"
+                git branch: 'main',
+                    url: "${GIT_REPO}",
+                    credentialsId: 'github-creds'
             }
         }
 
         stage('🐳 Build Docker Image') {
             steps {
                 echo "Building Docker image: ${IMAGE_NAME}:${TAG}"
-                sh """
-                    docker build -t ${IMAGE_NAME}:${TAG} .
-                """
+                sh "docker build -t ${IMAGE_NAME}:${TAG} ."
             }
         }
 
         stage('🔐 Security Scan (Trivy)') {
             steps {
                 echo "Running Trivy scan..."
-                sh """
-                    trivy image --exit-code 0 --severity HIGH,CRITICAL ${IMAGE_NAME}:${TAG}
-                """
+                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${IMAGE_NAME}:${TAG}"
             }
         }
 
@@ -68,48 +62,41 @@ pipeline {
             }
         }
 
-        stage('📥 Clone GitOps Repo') {
-            steps {
-                dir("${GITOPS_DIR}") {
-                    git branch: 'main',
-                        url: "${GITOPS_REPO}",
-                        credentialsId: 'github-creds'
-                }
-            }
-        }
-
         stage('✏️ Update Kubernetes Manifest') {
             steps {
-                dir("${GITOPS_DIR}") {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-creds',
-                        usernameVariable: 'GIT_USER',
-                        passwordVariable: 'GIT_PASS'
-                    )]) {
-                        sh """
-                            echo "Updating deployment.yaml with new image"
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-creds',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASS'
+                )]) {
+                    sh '''
+                        echo "===== DEBUG INFO ====="
+                        pwd
+                        ls -la
+                        echo "Checking manifest folder:"
+                        ls -la flask-k8s-manifests || true
 
-                            # ✅ safer replacement (only change image line)
-                            sed -i 's|image: .*|image: ${IMAGE_NAME}:${TAG}|g' deployment.yaml
+                        echo "===== Updating deployment.yaml ====="
 
-                            git config user.email "jharakesh485@gmail.com"
-                            git config user.name "Rakesh"
+                        # Update image tag in correct path
+                        sed -i "s|image:.*|image: '"${IMAGE_NAME}:${TAG}"'|g" flask-k8s-manifests/deployment.yaml
 
-                            git add deployment.yaml
-                            git commit -m "Update image to version ${TAG}" || echo "No changes to commit"
+                        # Git config
+                        git config user.email "jharakesh485@gmail.com"
+                        git config user.name "Rakesh"
 
-                            git push https://${GIT_USER}:${GIT_PASS}@github.com/rakesh611/flask-k8s-manifests.git
-                        """
-                    }
+                        # Commit & push
+                        git add flask-k8s-manifests/deployment.yaml
+                        git commit -m "Update image to version '"${TAG}"'" || echo "No changes"
+
+                        git push https://${GIT_USER}:${GIT_PASS}@github.com/rakesh611/Hotel_Reservation_Prediction.git
+                    '''
                 }
             }
         }
     }
 
     post {
-        always {
-            cleanWs()   // ✅ cleanup after build
-        }
         success {
             echo "✅ Pipeline completed successfully!"
         }
