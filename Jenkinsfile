@@ -7,7 +7,7 @@ pipeline {
 
         GIT_REPO = "https://github.com/rakesh611/Hotel_Reservation_Prediction.git"
 
-        GITOPS_REPO = "https://github.com/rakesh611/flask-k8s-manifests.git"
+        GITOPS_REPO = "https://github.com/rakesh611/Hotel_Reservation_Prediction.git"
         GITOPS_DIR = "flask-k8s-manifests"
     }
 
